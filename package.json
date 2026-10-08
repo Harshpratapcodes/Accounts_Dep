@@ -1,0 +1,45 @@
+{
+  "name": "bizsuite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "dev:web": "npm run dev --workspace frontend",
+    "build:web": "npm run build --workspace frontend",
+    "test:integration": "tsx test/integration.ts",
+    "test:auth": "tsx test/auth.ts",
+    "test:rbac": "tsx test/rbac.ts",
+    "test:masters": "tsx test/masters.ts",
+    "test:quotations": "tsx test/quotations.ts",
+    "test:sales-orders": "tsx test/sales-orders.ts",
+    "test:accounting": "tsx test/accounting.ts",
+    "test:journals": "tsx test/journals.ts",
+    "test:periods": "tsx test/periods.ts",
+    "test:khata": "tsx test/khata.ts",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "test:web": "npm run test --workspace frontend",
+    "import:customers": "tsx scripts/import-customers.ts"
+  },
+  "dependencies": {
+    "@bizsuite/contracts": "*",
+    "@node-rs/argon2": "^2.0.2",
+    "express": "^4.19.2",
+    "pg": "^8.12.0",
+    "tsx": "^4.16.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.6",
+    "typescript": "^5.5.0"
+  }
+}
