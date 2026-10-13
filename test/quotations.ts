@@ -4,10 +4,15 @@
  * rupee rounding), draft edit, submit numbering, immutability after submit,
  * one-time conversion, and admin-only cancel.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";
 import { pool } from "../src/shared/db.js";
+import { businessToday, fyStartYear } from "../src/shared/clock.js";
+
+// Numbers come from the series of the financial year of the document date (C-08).
+const FY = fyStartYear(businessToday());
 
 let passed = 0, failed = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -111,7 +116,7 @@ async function main() {
     const submitRes = await fetch(`${base}/api/sales/quotations/${quote.id}/submit`, { method: "POST", ...j(sales) });
     check("submit -> 200", submitRes.status === 200, String(submitRes.status));
     const submitted = await submitRes.json() as { docNo: string };
-    check("QTN number issued", /^QTN-2026-\d{5}$/.test(submitted.docNo ?? ""), submitted.docNo ?? "");
+    check("QTN number issued", new RegExp(`^QTN-${FY}-[0-9]{5}$`).test(submitted.docNo ?? ""), submitted.docNo ?? "");
     const noJournal = await q<{ n: string }>(
       `SELECT count(*)::text AS n FROM journal_entries WHERE voucher_id = $1`, [quote.id]);
     check("quotation posts no journal", noJournal[0]!.n === "0", noJournal[0]!.n);

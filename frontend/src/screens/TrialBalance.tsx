@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { TrialBalanceDto } from "@bizsuite/contracts";
 import { api, friendlyMessage } from "../api";
+import { today } from "../dates";
 import { inr } from "./Khata";
 
 /**
@@ -9,7 +10,6 @@ import { inr } from "./Khata";
  * side. The debit and credit columns MUST total to the same figure; if they
  * don't, the ledger is broken (they always do, by the posting invariants).
  */
-const today = (): string => new Date().toISOString().slice(0, 10);
 
 export function TrialBalanceScreen() {
   const [asOf, setAsOf] = useState(today());

@@ -81,7 +81,7 @@ test("golden journey: staff invoices 2 UPS, server totals shown, khata updates",
   await page.getByRole("button", { name: "Submit invoice" }).click();
   await page.getByRole("button", { name: "Yes, submit invoice" }).click();
 
-  await expect(page.getByRole("status")).toContainText(/INV-2026-\d{5}/);
+  await expect(page.getByRole("status")).toContainText(/INV-\d{4}-\d{5}/);
 
   // submitted view: printable, but staff sees no cancel
   await expect(page.getByRole("button", { name: /Print invoice/ })).toBeVisible();
@@ -118,7 +118,7 @@ test("insufficient stock: plain-language error, edit draft, retry succeeds", asy
   await expect(page.locator(".totals")).toContainText("₹10,620.00");
   await page.getByRole("button", { name: "Submit invoice" }).click();
   await page.getByRole("button", { name: "Yes, submit invoice" }).click();
-  await expect(page.getByRole("status")).toContainText(/INV-2026-\d{5}/);
+  await expect(page.getByRole("status")).toContainText(/INV-\d{4}-\d{5}/);
 
   // khata now carries both invoices: 28,320 + 10,620
   await switchApp(page, "Khata");

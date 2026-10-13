@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreateJournalEntry, type AccountNodeDto } from "@bizsuite/contracts";
 import { api, friendlyMessage } from "../api";
+import { today } from "../dates";
 import { inr } from "./Khata";
 
 /**
@@ -13,7 +14,6 @@ import { inr } from "./Khata";
 interface LineDraft { key: number; accountId: string; side: "debit" | "credit"; amount: string; remarks: string; }
 let lineKey = 1;
 const newLine = (): LineDraft => ({ key: lineKey++, accountId: "", side: "debit", amount: "", remarks: "" });
-const today = (): string => new Date().toISOString().slice(0, 10);
 const amt = (s: string): number => (/^\d+(\.\d{1,2})?$/.test(s) ? Number(s) : 0);
 
 export function JournalEntryNewScreen() {

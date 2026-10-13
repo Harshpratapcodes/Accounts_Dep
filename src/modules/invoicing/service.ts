@@ -1,5 +1,6 @@
 import type { Tx } from "../../shared/db.js";
 import { withTransaction } from "../../shared/db.js";
+import { businessToday } from "../../shared/clock.js";
 import { AppError, fromPgError } from "../../shared/errors.js";
 import { makeLifecycle } from "../../core/document-engine.js";
 import { postJournal, reverseJournal, type JournalLine } from "../accounting/service.js";
@@ -30,7 +31,7 @@ export interface CreateInvoiceInput {
 
 /** Shared by create + update: company/customer lookups, GST math, future-date guard. */
 async function prepareInvoice(tx: Tx, input: CreateInvoiceInput) {
-  if (input.docDate && input.docDate > new Date().toISOString().slice(0, 10)) {
+  if (input.docDate && input.docDate > businessToday()) {
     throw new AppError("INVALID_DATE", "Invoice date cannot be in the future", 422);
   }
   const { rows: [settings] } = await tx.query<{ state_code: string; gstin: string | null }>(
@@ -140,7 +141,7 @@ export async function updateDraftInvoice(
 // Lifecycle: the reference onSubmit/onCancel — THE most important code path.
 // ---------------------------------------------------------------------------
 interface LoadedInvoice {
-  id: string; status: string;
+  id: string; status: string; kind: "invoice" | "credit_note";
   customer_id: string; source_warehouse_id: string; doc_date: string;
   taxable_total: string; cgst_total: string; sgst_total: string;
   igst_total: string; rounding_adjustment: string; grand_total: string;
@@ -150,7 +151,7 @@ interface LoadedInvoice {
 
 async function loadInvoice(tx: Tx, id: string): Promise<LoadedInvoice> {
   const { rows: [inv] } = await tx.query<LoadedInvoice>(
-    `SELECT id, status, customer_id, source_warehouse_id, doc_date::text,
+    `SELECT id, status, kind::text, customer_id, source_warehouse_id, doc_date::text,
             taxable_total::text, cgst_total::text, sgst_total::text, igst_total::text,
             rounding_adjustment::text, grand_total::text, is_inter_state, journal_entry_id
        FROM invoices WHERE id = $1`, [id]);
@@ -168,12 +169,19 @@ async function loadInvoice(tx: Tx, id: string): Promise<LoadedInvoice> {
 
 export const invoiceLifecycle = makeLifecycle<LoadedInvoice>({
   table: "invoices",
-  series: () => "INV-2026",
+  // A credit note is an invoices row of its own kind with its own series (C-10).
+  series: (inv) => (inv.kind === "credit_note" ? "CRN" : "INV"),
   load: loadInvoice,
 
   /** Submission, in the canonical order (see system-design.md §5.1):
    *  lock stock -> sales journal -> stock issues -> COGS journal. */
   async onSubmit(tx, inv, docNo, userId) {
+    // This posting is an invoice's: Dr Debtors / Cr Sales, stock out. A credit
+    // note posts the other way and has no path yet (V2-2, ADR 025); refuse it
+    // rather than book it backwards. The number allocated above rolls back.
+    if (inv.kind !== "invoice") {
+      throw new AppError("NOT_SUPPORTED", `Posting a ${inv.kind} is not built yet`, 422);
+    }
     // 1. Serialize on stock rows BEFORE any writes (deadlock-safe ordering inside)
     const locked = await lockStock(tx, inv.stockLines);
 

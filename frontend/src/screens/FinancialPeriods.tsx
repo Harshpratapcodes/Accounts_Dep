@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FinancialPeriodDto } from "@bizsuite/contracts";
 import { api, friendlyMessage } from "../api";
-import { useAuth, isAdmin } from "../auth";
+import { useAuth, hasFullBooks } from "../auth";
 
 /**
  * Financial periods — open/close the books month by month. Closing a period
@@ -12,7 +12,7 @@ import { useAuth, isAdmin } from "../auth";
 export function FinancialPeriodsScreen() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const admin = isAdmin(user);
+  const admin = hasFullBooks(user);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

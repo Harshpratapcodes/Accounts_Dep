@@ -4,6 +4,7 @@
  * reopening allows it again, other periods stay unaffected. Leaves every
  * period open at the end.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";

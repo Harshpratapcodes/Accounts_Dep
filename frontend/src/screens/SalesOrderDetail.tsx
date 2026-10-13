@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SalesOrderDetail, WarehouseDto } from "@bizsuite/contracts";
 import { api, ApiError, friendlyMessage } from "../api";
-import { useAuth, isAdmin, canCreateInvoice } from "../auth";
+import { useAuth, hasFullBooks, canCreateInvoice } from "../auth";
 import { inr } from "./Khata";
 import { stateName } from "../gst-states";
 import { amountInWords } from "../inr-words";
@@ -237,7 +237,7 @@ export function SalesOrderDetailScreen() {
               <button className="secondary" style={{ marginTop: 20 }} disabled={busy}
                       onClick={() => setConfirming("invoice")}>Create invoice</button>
             )}
-            {isAdmin(user) && openInvoices.length === 0 && confirming !== "cancel" && (
+            {hasFullBooks(user) && openInvoices.length === 0 && confirming !== "cancel" && (
               <button className="secondary" style={{ marginTop: 20 }} disabled={busy}
                       onClick={() => setConfirming("cancel")}>Cancel order</button>
             )}

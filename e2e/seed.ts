@@ -4,6 +4,7 @@
  * known opening balance, then writes credentials/ids to e2e/.seed.json for
  * the specs. Unique names per run; nothing is ever deleted (append-only DB).
  */
+import "../test/support/local-db-only.js"; // first: refuses a non-local database
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

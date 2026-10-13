@@ -74,7 +74,7 @@ test("golden journey: staff records a payment, khata updates", async ({ page }) 
   await page.getByRole("button", { name: "Yes, submit payment" }).click();
 
   const banner = page.getByRole("status");
-  await expect(banner).toContainText(/PAY-2026-\d{5}/);
+  await expect(banner).toContainText(/PAY-\d{4}-\d{5}/);
 
   // Khata reflects the payment
   await switchApp(page, "Khata");

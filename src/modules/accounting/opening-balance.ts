@@ -1,4 +1,5 @@
 import { withTransaction } from "../../shared/db.js";
+import { businessToday } from "../../shared/clock.js";
 import { AppError, fromPgError } from "../../shared/errors.js";
 import { postJournal } from "./service.js";
 import { toPaise } from "../../shared/money.js";
@@ -51,7 +52,7 @@ export async function enterOpeningBalance(input: OpeningBalanceInput, userId: st
     }
 
     const je = await postJournal(tx, {
-      postingDate: input.asOfDate ?? new Date().toISOString().slice(0, 10),
+      postingDate: input.asOfDate ?? businessToday(),
       voucherType: "manual_journal",
       voucherId: input.customerId,
       narration: OPENING_NARRATION,

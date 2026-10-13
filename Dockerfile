@@ -24,6 +24,8 @@ COPY packages/contracts ./packages/contracts
 COPY frontend/package.json frontend/
 RUN npm ci --omit=dev
 COPY src ./src
+# Applied at boot, before the server listens (src/shared/migrate.ts)
+COPY migrations ./migrations
 COPY --from=build /app/frontend/dist ./frontend/dist
 EXPOSE 3000
 # node as the direct process (clean SIGTERM on deploys); tsx registered as loader

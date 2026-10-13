@@ -4,10 +4,15 @@
  * draft invoice (GST math) -> submit (journals + stock + COGS) ->
  * verify ledgers/views -> oversell rejection -> cancel (reversals) -> verify.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import { pool, withTransaction } from "../src/shared/db.js";
 import { lockStock, receiveStock } from "../src/modules/inventory/service.js";
 import { createDraftInvoice, invoiceLifecycle } from "../src/modules/invoicing/service.js";
 import { toPaise } from "../src/shared/money.js";
+import { businessToday, fyStartYear } from "../src/shared/clock.js";
+
+// Numbers come from the series of the financial year of the document date (C-08).
+const FY = fyStartYear(businessToday());
 
 let passed = 0, failed = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -73,7 +78,7 @@ async function main() {
 
   console.log("== STEP 3: submit — journals + stock issue + COGS in ONE transaction ==");
   const { docNo } = await invoiceLifecycle.submit(invId, userId);
-  check("doc number issued", /^INV-2026-\d{5}$/.test(docNo), docNo);
+  check("doc number issued", new RegExp(`^INV-${FY}-[0-9]{5}$`).test(docNo), docNo);
 
   const [inv] = await q<Record<string, string>>(`SELECT * FROM invoices WHERE id=$1`, [invId]);
   check("status = submitted", inv!.status === "submitted");

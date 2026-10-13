@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InvoiceDetail } from "@bizsuite/contracts";
 import { api, ApiError, friendlyMessage } from "../api";
-import { useAuth, isAdmin } from "../auth";
+import { useAuth, hasFullBooks } from "../auth";
 import { inr } from "./Khata";
 import { stateName } from "../gst-states";
 import { amountInWords } from "../inr-words";
@@ -211,7 +211,7 @@ export function InvoiceDetailScreen() {
         {d.status === "submitted" && (
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <button className="primary" onClick={() => window.print()}>🖨 Print invoice</button>
-            {isAdmin(user) && confirming !== "cancel" && (
+            {hasFullBooks(user) && confirming !== "cancel" && (
               <button className="secondary" style={{ marginTop: 20 }} disabled={busy}
                       onClick={() => setConfirming("cancel")}>
                 Cancel invoice (reversal)

@@ -1,5 +1,6 @@
 import type { Tx } from "../../shared/db.js";
 import { pool, withTransaction } from "../../shared/db.js";
+import { businessToday } from "../../shared/clock.js";
 import { AppError, fromPgError } from "../../shared/errors.js";
 import { makeLifecycle } from "../../core/document-engine.js";
 import { toDecimalString, toPaise } from "../../shared/money.js";
@@ -38,7 +39,7 @@ export interface CreateSalesOrderInput {
 }
 
 async function prepareSalesOrder(tx: Tx, input: CreateSalesOrderInput) {
-  if (input.docDate && input.docDate > new Date().toISOString().slice(0, 10)) {
+  if (input.docDate && input.docDate > businessToday()) {
     throw new AppError("INVALID_DATE", "Order date cannot be in the future", 422);
   }
   const { rows: [settings] } = await tx.query<{ state_code: string }>(
@@ -146,7 +147,7 @@ interface LoadedSalesOrder { id: string; status: string; }
 
 export const salesOrderLifecycle = makeLifecycle<LoadedSalesOrder>({
   table: "sales_orders",
-  series: () => "SO-2026",
+  series: () => "SO",
   async load(tx, id) {
     const { rows: [so] } = await tx.query<LoadedSalesOrder>(
       `SELECT id, status FROM sales_orders WHERE id = $1`, [id]);

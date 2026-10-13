@@ -3,6 +3,7 @@
  * Flow: create user -> login (sets cookie) -> protected route with/without
  * cookie -> wrong password -> logout revokes the session.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";

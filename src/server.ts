@@ -10,6 +10,9 @@ import { login, logout } from "./core/auth.js";
 import { requireAuth, readCookie, sessionCookieOptions, clearCookieOptions, SESSION_COOKIE } from "./core/middleware.js";
 import { assertDevBypassSafe } from "./core/dev-auth.js";
 import { settingsRouter } from "./core/settings.routes.js";
+import { configRouter } from "./core/config.routes.js";
+import { runMigrations } from "./shared/migrate.js";
+import { securityHeaders, rejectCrossSite, loginAttempts, loginFailures } from "./core/security.js";
 import { itemsRouter } from "./modules/inventory/items.routes.js";
 import { warehousesRouter } from "./modules/inventory/warehouses.routes.js";
 import { companiesRouter } from "./modules/crm/companies.routes.js";
@@ -30,12 +33,15 @@ const app = express();
 // Behind Render/nginx TLS termination: trust the first proxy hop so req.ip is
 // the client (audit logs, future rate limiting), not the proxy.
 app.set("trust proxy", 1);
+app.use(securityHeaders());
+// CSRF: before body parsing, so a refused request is never parsed.
+app.use("/api", rejectCrossSite);
 app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Auth routes
 // ---------------------------------------------------------------------------
-app.post("/api/auth/login", async (req, res, next) => {
+app.post("/api/auth/login", loginAttempts, loginFailures, async (req, res, next) => {
   try {
     const { email, password } = Login.parse(req.body);
     const result = await login(email, password, {
@@ -65,6 +71,7 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
 // Module routers
 // ---------------------------------------------------------------------------
 app.use("/api/settings", settingsRouter);
+app.use("/api/config", configRouter);
 app.use("/api/inventory/items", itemsRouter);
 app.use("/api/inventory/warehouses", warehousesRouter);
 app.use("/api/crm/companies", companiesRouter);
@@ -103,6 +110,14 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
   if (err instanceof z.ZodError) {
     return res.status(422).json({ error: { code: "VALIDATION", details: err.flatten() } });
   }
+  // body-parser's client errors (malformed JSON, oversize body) are the
+  // caller's fault: answer 4xx, not INTERNAL, and keep them out of the error log.
+  const bodyErr = err as { type?: string; status?: number; expose?: boolean };
+  if (bodyErr.expose && bodyErr.status && bodyErr.status >= 400 && bodyErr.status < 500) {
+    const code = bodyErr.type === "entity.parse.failed" ? "BAD_JSON"
+      : bodyErr.type === "entity.too.large" ? "BODY_TOO_LARGE" : "BAD_REQUEST";
+    return res.status(bodyErr.status).json({ error: { code, message: "The request body could not be read" } });
+  }
   const e = err instanceof AppError ? err : new AppError("INTERNAL", "Internal error", 500);
   // Unexpected errors must reach the server log (Render Logs tab) with their
   // stack — the client only ever sees the generic INTERNAL envelope.
@@ -115,8 +130,18 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 export { app };
 
 // Start the HTTP listener only when run as the entry point (not when imported
-// by tests, which start their own ephemeral listener).
+// by tests, which start their own ephemeral listener). Pending migrations run
+// first: new code never serves requests against an old schema, and a failed
+// migration stops the boot, so the platform keeps the previous instance.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT ?? 3000);
-  app.listen(port, () => console.log(`bizsuite listening on :${port}`));
+  runMigrations()
+    .then(({ applied }) => {
+      for (const name of applied) console.log(`migration applied: ${name}`);
+      app.listen(port, () => console.log(`bizsuite listening on :${port}`));
+    })
+    .catch((err: unknown) => {
+      console.error("migrations failed; not starting:", err);
+      process.exit(1);
+    });
 }

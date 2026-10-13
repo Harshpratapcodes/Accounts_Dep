@@ -6,6 +6,7 @@ import {
   type CompanySettingsDto, type ItemOption, type KhataReport, type SalesOrderDetail,
 } from "@bizsuite/contracts";
 import { api, friendlyMessage } from "../api";
+import { today } from "../dates";
 import { inr } from "./Khata";
 import { CustomerPicker, type CustomerOption } from "../components/CustomerPicker";
 import { ItemPicker } from "../components/ItemPicker";
@@ -28,7 +29,6 @@ interface LineDraft {
 
 let lineKey = 1;
 const newLine = (): LineDraft => ({ key: lineKey++, item: null, description: "", qty: "1", rate: "", discountPct: "" });
-const today = (): string => new Date().toISOString().slice(0, 10);
 
 export function SalesOrderNewScreen() {
   const { id: editingId } = useParams();

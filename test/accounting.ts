@@ -3,6 +3,7 @@
  * type, archive guards) + the two ledger reports (Trial Balance must balance,
  * General Ledger for the Debtors control account). Over real HTTP + RBAC.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";

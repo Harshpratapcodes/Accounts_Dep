@@ -54,7 +54,7 @@ export async function postJournal(tx: Tx, input: PostJournalInput, userId: strin
     );
   }
 
-  const entryNo = await nextDocNumber(tx, "JV-2026");
+  const entryNo = await nextDocNumber(tx, "JV", input.postingDate);
   await tx.query(
     `UPDATE journal_entries
         SET status = 'posted', entry_no = $2, posted_by = $3, posted_at = now()
@@ -76,9 +76,9 @@ export async function reverseJournal(tx: Tx, journalEntryId: string, userId: str
     [journalEntryId],
   );
 
-  const { rows: [rev] } = await tx.query<{ id: string }>(
+  const { rows: [rev] } = await tx.query<{ id: string; posting_date: string }>(
     `INSERT INTO journal_entries (posting_date, voucher_type, voucher_id, narration, status, reverses_id)
-     VALUES (CURRENT_DATE, $1::voucher_type, $2, $3, 'draft', $4) RETURNING id`,
+     VALUES (CURRENT_DATE, $1::voucher_type, $2, $3, 'draft', $4) RETURNING id, posting_date::text`,
     [orig!.voucher_type, orig!.voucher_id, narration, journalEntryId],
   );
   for (const l of lines) {
@@ -88,7 +88,7 @@ export async function reverseJournal(tx: Tx, journalEntryId: string, userId: str
       [rev!.id, l.account_id, l.credit, l.debit, l.party_type, l.party_id], // swapped
     );
   }
-  const entryNo = await nextDocNumber(tx, "JV-2026");
+  const entryNo = await nextDocNumber(tx, "JV", rev!.posting_date);
   await tx.query(
     `UPDATE journal_entries SET status='posted', entry_no=$2, posted_by=$3, posted_at=now() WHERE id=$1`,
     [rev!.id, entryNo, userId],

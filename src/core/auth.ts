@@ -93,23 +93,36 @@ export async function login(
       WHERE u.email = lower($1)`,
     [email],
   );
-  if (!row || !row.is_active) return null;
-  if (!(await verifyPassword(row.password_hash, password))) return null;
+  // Always run one argon2 verify, against a throwaway hash when there is no
+  // usable account: otherwise an unknown email answers in ~2 ms and a known
+  // one in ~50 ms, and the timing tells an attacker which emails exist.
+  const usable = row && row.is_active ? row : null;
+  const ok = await verifyPassword(usable?.password_hash ?? await absentUserHash(), password);
+  if (!usable || !ok) return null;
+  const user = usable;
 
   const token = newSessionToken();
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000);
   await pool.query(
     `INSERT INTO sessions (id, user_id, expires_at, ip, user_agent)
      VALUES ($1, $2, $3, $4, $5)`,
-    [hashToken(token), row.id, expiresAt, meta.ip ?? null, meta.userAgent ?? null],
+    [hashToken(token), user.id, expiresAt, meta.ip ?? null, meta.userAgent ?? null],
   );
-  await pool.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [row.id]);
+  await pool.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
 
   return {
     token,
-    user: { id: row.id, email: row.email, fullName: row.full_name,
-            roleId: row.role_id, roleName: row.role_name },
+    user: { id: user.id, email: user.email, fullName: user.full_name,
+            roleId: user.role_id, roleName: user.role_name },
   };
+}
+
+/** A real argon2id hash (same parameters) of a random secret nobody knows,
+ *  made once per process, for login attempts with no usable account. */
+let absentHash: Promise<string> | null = null;
+function absentUserHash(): Promise<string> {
+  absentHash ??= hashPassword(crypto.randomBytes(32).toString("base64url"));
+  return absentHash;
 }
 
 /** Resolve a cookie token to the live user, or null if invalid/expired. */

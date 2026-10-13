@@ -1,12 +1,16 @@
 # Render Blueprint — one web service running the Dockerfile.
-# DB is Neon (us-east-1), so the service is pinned to Virginia for latency.
+# v2's own service and database (D-170, T0-04). The database is Neon in
+# ap-southeast-1, so the service is pinned to Singapore: every request makes
+# several queries, and a cross-region round trip is ~200 ms each. Render
+# cannot move an existing service between regions; this applies when the
+# service is created from the Blueprint.
 # DATABASE_URL is a secret: set it in the Render dashboard when prompted
 # (sync: false means "never store the value in this file").
 services:
   - type: web
-    name: bizsuite
+    name: bizsuite-accounts
     runtime: docker
-    region: virginia
+    region: singapore
     plan: free
     healthCheckPath: /healthz
     autoDeploy: true

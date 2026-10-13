@@ -1,4 +1,5 @@
 import { pool, withTransaction } from "../../shared/db.js";
+import { businessToday } from "../../shared/clock.js";
 import { AppError, fromPgError } from "../../shared/errors.js";
 import { nextDocNumber } from "../../core/numbering.js";
 import { toPaise, toDecimalString } from "../../shared/money.js";
@@ -27,7 +28,7 @@ export interface CreateJournalInput {
 }
 
 export async function postManualJournal(input: CreateJournalInput, userId: string): Promise<{ id: string; entryNo: string }> {
-  if (input.postingDate && input.postingDate > new Date().toISOString().slice(0, 10)) {
+  if (input.postingDate && input.postingDate > businessToday()) {
     throw new AppError("INVALID_DATE", "Posting date cannot be in the future", 422);
   }
   if (input.lines.length < 2) throw new AppError("VALIDATION", "A journal needs at least two lines", 422);
@@ -61,9 +62,10 @@ export async function postManualJournal(input: CreateJournalInput, userId: strin
       if (!a.is_active) throw new AppError("INACTIVE_ACCOUNT", "Cannot post to an archived account", 422);
     }
 
-    const { rows: [entry] } = await tx.query<{ id: string }>(
+    const { rows: [entry] } = await tx.query<{ id: string; posting_date: string }>(
       `INSERT INTO journal_entries (posting_date, voucher_type, narration, status)
-       VALUES (COALESCE($1, CURRENT_DATE), 'manual_journal', $2, 'draft') RETURNING id`,
+       VALUES (COALESCE($1, CURRENT_DATE), 'manual_journal', $2, 'draft')
+       RETURNING id, posting_date::text`,
       [input.postingDate ?? null, input.narration]);
 
     for (const l of input.lines) {
@@ -73,7 +75,7 @@ export async function postManualJournal(input: CreateJournalInput, userId: strin
         [entry!.id, l.accountId, l.debit, l.credit, l.partyType ?? null, l.partyId ?? null, l.remarks ?? null]);
     }
 
-    const entryNo = await nextDocNumber(tx, "JV-2026");
+    const entryNo = await nextDocNumber(tx, "JV", entry!.posting_date);
     await tx.query(
       `UPDATE journal_entries SET status='posted', entry_no=$2, posted_by=$3, posted_at=now() WHERE id=$1`,
       [entry!.id, entryNo, userId]);

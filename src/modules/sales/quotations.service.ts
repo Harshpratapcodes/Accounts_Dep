@@ -1,5 +1,6 @@
 import type { Tx } from "../../shared/db.js";
 import { withTransaction } from "../../shared/db.js";
+import { businessToday } from "../../shared/clock.js";
 import { AppError, fromPgError } from "../../shared/errors.js";
 import { makeLifecycle } from "../../core/document-engine.js";
 import { toDecimalString, toPaise } from "../../shared/money.js";
@@ -40,7 +41,7 @@ export interface CreateQuotationInput {
 
 /** Shared by create + update: company/customer lookups, GST math, future-date guard. */
 async function prepareQuotation(tx: Tx, input: CreateQuotationInput) {
-  if (input.docDate && input.docDate > new Date().toISOString().slice(0, 10)) {
+  if (input.docDate && input.docDate > businessToday()) {
     throw new AppError("INVALID_DATE", "Quotation date cannot be in the future", 422);
   }
   const { rows: [settings] } = await tx.query<{ state_code: string }>(
@@ -146,7 +147,7 @@ interface LoadedQuotation { id: string; status: string; }
 
 export const quotationLifecycle = makeLifecycle<LoadedQuotation>({
   table: "quotations",
-  series: () => "QTN-2026",
+  series: () => "QTN",
   async load(tx, id) {
     const { rows: [q] } = await tx.query<LoadedQuotation>(
       `SELECT id, status FROM quotations WHERE id = $1`, [id]);

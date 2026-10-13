@@ -4,6 +4,57 @@ Reference implementation of the modular-monolith design. Companion docs:
 `../README.md` (what/why/architecture), `../blueprint.md` (scope/phases/tracker),
 `../system-design.md` (architecture; §11 maps design→built), `../schema.sql`.
 
+## v2 (bizsuite-accounts): what has landed
+
+Plan: `v2_docs/08-build-plan.md`. Schema design: `v2_docs/04-schema-deltas.md`.
+
+- **V2-0 0.B, engine corrections** (T0-06, T0-07, T0-08), as migrations
+  `migrations/0001` to `0004`, applied at boot by `src/shared/migrate.ts`:
+  - `business` + `business_id` on every business table; the `owner` role
+    (full books, reads `core`); SPA role checks via `hasFullBooks()`
+  - the business date is IST (`src/shared/clock.ts`, database `TimeZone`,
+    per-transaction `set_config`); SPA form defaults use the same date
+  - number series per financial year, chosen by document date
+    (`nextDocNumber(tx, code, docDate)`); `INV-2027-00001` is FY 2027-28
+  - effective-dated config (`src/core/config.ts`, `/api/config`), seeded
+    from 02 §8; undecided keys fail with `CONFIG_UNSET`
+  - document engine locks the row before submit/cancel (fixes a v1
+    double-cancel race that double-reversed the books); invoice posting
+    refuses `credit_note` rows until V2-2 builds their path
+- **V2-0 T0-09, HTTP hardening** (D-143), `src/core/security.ts`:
+  - helmet with an explicit CSP: own origin plus Google Fonts only, no
+    framing, no inline script; `Referrer-Policy: same-origin` (helmet's
+    `no-referrer` would make browsers send `Origin: null` on our own POSTs);
+    HSTS and upgrade-insecure-requests in production only.
+    `e2e/csp.spec.ts` walks every screen and fails on any violation.
+    T0-10 must add the storage bucket's origin (signed URLs) to `img-src`
+    and `connect-src`; T3-01 adds `blob:` for camera previews
+  - CSRF without tokens: state-changing `/api` requests are refused (403
+    `CROSS_SITE_REQUEST`) when `Sec-Fetch-Site` is anything but
+    `same-origin`, or, lacking it, when `Origin` is not our own. A request
+    with neither did not come from a browser. On top of SameSite=Lax
+  - login limits per client IP: 30 attempts/min (bounds argon2 work), 10
+    failures/15 min (successes don't count); 429 `RATE_LIMITED` with
+    Retry-After. Ask and upload get theirs when those routes land (T0-15,
+    T0-10), from the same `limiter()` factory, keyed per user
+  - login runs argon2 for unknown and inactive accounts too, so timing no
+    longer reveals which emails exist
+  - malformed JSON is 400 `BAD_JSON`, not a logged 500
+  - `npm audit fix`: proxy-addr (critical, IP spoofing behind a proxy,
+    which per-IP limits depend on), qs, body-parser, express. Left:
+    react-router (2 moderate, need v7; neither reachable: no SSR, no
+    attacker-controlled navigation) and dev-only vite/vitest/esbuild
+    (need majors)
+  - deploy check: after the first production login, `SELECT ip FROM
+    sessions ORDER BY created_at DESC LIMIT 1` must show the real client
+    address. If it shows a Render/Cloudflare address, `trust proxy` is
+    wrong and every user shares one rate-limit bucket
+- **Tests refuse a non-local database** (`test/support/local-db-only.ts`,
+  imported first by every suite and the E2E seed): suites write permanent
+  ledger records. Set `DATABASE_URL` to a local database when `.env` points
+  elsewhere; a deliberate remote test database is allowed with
+  `BIZSUITE_TEST_REMOTE_DB=<its hostname>`
+
 ## What's implemented
 - **shared/** — `money.ts` (integer-paise arithmetic, zero floats), `db.ts`
   (node-postgres pool + `withTransaction` that sets `app.user_id` for audit
@@ -59,9 +110,14 @@ Reference implementation of the modular-monolith design. Companion docs:
   lifecycle, all zod-validated and behind `requireAuth` + `requirePermission`
 
 ## Run
+`DATABASE_URL` (environment or `.env`) wins over the `PG*` vars below. If
+`.env` points at a hosted database, run tests with
+`DATABASE_URL=postgresql://postgres@localhost:5432/bizsuite`; the suites refuse
+a non-local database otherwise.
 ```bash
-createdb bizsuite && psql -d bizsuite -f schema.sql
+createdb bizsuite && psql -d bizsuite -v ON_ERROR_STOP=1 -f schema.sql
 npm install
+PGDATABASE=bizsuite npm run migrate              # v2 deltas (also applied at server boot)
 PGDATABASE=bizsuite npm run test:integration    # 25 assertions, full quote-to-cash
 PGDATABASE=bizsuite npm run test:auth           # login/session/logout over real HTTP
 PGDATABASE=bizsuite npm run test:rbac           # role_permissions + route guard
@@ -71,7 +127,11 @@ PGDATABASE=bizsuite npm run test:sales-orders    # sales order lifecycle + billi
 PGDATABASE=bizsuite npm run test:accounting      # chart of accounts + trial balance + GL
 PGDATABASE=bizsuite npm run test:journals        # manual journal post + reversal + RBAC
 PGDATABASE=bizsuite npm run test:periods         # period close/reopen + posting lock
-PGDATABASE=bizsuite npx tsx test/concurrency.ts # 5 parallel sales, 1 unit, 1 winner
+PGDATABASE=bizsuite npx tsx test/concurrency.ts # 5 parallel sales, 1 unit, 1 winner; same-doc races
+PGDATABASE=bizsuite npm run test:numbering      # FY series, rollover, first-of-year race (C-08)
+PGDATABASE=bizsuite npm run test:config         # effective-dated config (C-14)
+PGDATABASE=bizsuite npm run test:business       # business_id everywhere, owner role
+PGDATABASE=bizsuite npm run test:security       # headers, CSRF, login limits and timing
 PGDATABASE=bizsuite npm run dev                 # API on :3000
 ```
 
@@ -109,7 +169,8 @@ PGDATABASE=bizsuite npm run dev                 # API on :3000
   totals → submit → khata; insufficient-stock edit-and-retry; admin-only
   cancel; draft resume from the register)
 
-CI: `.github/workflows/ci.yml` runs typecheck + all eleven suites against a
+CI: `.github/workflows/ci.yml` loads `schema.sql`, applies `migrations/`, then
+runs typecheck, the fifteen tsx suites, Vitest and Playwright against a
 Postgres 16 service on every push/PR.
 
 ## Environment
@@ -133,9 +194,6 @@ it reads `render.yaml` → paste the Neon **pooled** `DATABASE_URL` when
 prompted. Free tier sleeps after ~15 min idle (cold start on wake); upgrade to
 Starter when the business depends on it.
 
-## Next (per the approved design doc + eng review)
-T6–T8 and the guided invoice UI are done. Remaining: **CA handshake + monthly
-CSV export (T11 — blocks the first real system B2B invoice)**, deploy +
-hardening (T12), restore drill week one of real data (T10), admin UI for
-users/warehouses. See `blueprint.md §10` and the design doc's GSTACK review
-report.
+## Next
+v2 work follows `v2_docs/08-build-plan.md`. The v1 roadmap that stood here
+(blueprint.md) is superseded.

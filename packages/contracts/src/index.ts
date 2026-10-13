@@ -39,6 +39,35 @@ export interface AuthUserDto {
 }
 
 // ---------------------------------------------------------------------------
+// Configuration (C-14): effective-dated values, admin-editable. The value's
+// shape depends on the key and is checked server-side against the key's
+// schema in src/core/config.ts.
+// ---------------------------------------------------------------------------
+export const SetConfigValue = z.object({
+  value: z.unknown().refine((v) => v !== undefined, "value is required"),
+  effectiveFrom: isoDate,
+  note: z.string().trim().max(500).optional(),
+}).strict();
+export type SetConfigValueInput = z.infer<typeof SetConfigValue>;
+
+export interface ConfigEntryDto {
+  key: string;
+  basis: string;                  // the requirement it implements, e.g. "C-30"
+  value: unknown | null;          // null: no value in force on the date asked
+  effectiveFrom: string | null;
+  note: string | null;
+}
+
+export interface ConfigHistoryDto {
+  id: string;
+  value: unknown;
+  effectiveFrom: string;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // CRM — companies (the customer/supplier master, and the party dimension for
 // the receivables/payables sub-ledger)
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "migrate": "tsx src/shared/migrate.ts",
     "dev:web": "npm run dev --workspace frontend",
     "build:web": "npm run build --workspace frontend",
     "test:integration": "tsx test/integration.ts",
@@ -22,6 +23,10 @@
     "test:journals": "tsx test/journals.ts",
     "test:periods": "tsx test/periods.ts",
     "test:khata": "tsx test/khata.ts",
+    "test:numbering": "tsx test/numbering.ts",
+    "test:config": "tsx test/config.ts",
+    "test:business": "tsx test/business.ts",
+    "test:security": "tsx test/security.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "test:web": "npm run test --workspace frontend",
@@ -31,6 +36,8 @@
     "@bizsuite/contracts": "*",
     "@node-rs/argon2": "^2.0.2",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
     "pg": "^8.12.0",
     "tsx": "^4.16.0",
     "zod": "^3.23.8"

@@ -5,6 +5,7 @@
  * HTTP-level against the real server + PostgreSQL; sales-role cookie exercises
  * the D4 grant (counter staff submits) on the payments rail.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";
@@ -12,6 +13,10 @@ import { pool, withTransaction } from "../src/shared/db.js";
 import { lockStock, receiveStock } from "../src/modules/inventory/service.js";
 import { fridayDigest } from "../src/modules/accounting/reports.js";
 import { toPaise } from "../src/shared/money.js";
+import { businessToday, fyStartYear } from "../src/shared/clock.js";
+
+// Numbers come from the series of the financial year of the document date (C-08).
+const FY = fyStartYear(businessToday());
 
 let passed = 0, failed = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -112,7 +117,7 @@ async function main() {
     });
     check("sales submits payment -> 200 (D4 grant)", paySubmit.status === 200, String(paySubmit.status));
     const payDoc = await paySubmit.json() as { docNo: string };
-    check("payment doc number PAY-2026-*", /^PAY-2026-\d{5}$/.test(payDoc.docNo), payDoc.docNo);
+    check(`payment doc number PAY-${FY}-*`, new RegExp(`^PAY-${FY}-[0-9]{5}$`).test(payDoc.docNo), payDoc.docNo);
     check("khata after on-account: 25000.00", (await khataBalance()) === "25000.00", String(await khataBalance()));
 
     const payDouble = await fetch(`${base}/api/invoicing/payments/${payId}/submit`, {

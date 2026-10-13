@@ -4,10 +4,15 @@
  * readonly 403, cancel admin-only), reversal (nets to zero, one-time,
  * manual-only), and the trial-balance invariant after post + reverse.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";
 import { pool } from "../src/shared/db.js";
+import { businessToday, fyStartYear } from "../src/shared/clock.js";
+
+// Numbers come from the series of the financial year of the document date (C-08).
+const FY = fyStartYear(businessToday());
 
 let passed = 0, failed = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -73,7 +78,7 @@ async function main() {
     const postRes = await fetch(`${base}/api/accounting/journals`, { method: "POST", ...j(acc, balanced) });
     check("accounts post -> 201", postRes.status === 201, String(postRes.status));
     const posted = await postRes.json() as { id: string; entryNo: string };
-    check("JV number issued", /^JV-2026-\d{5}$/.test(posted.entryNo ?? ""), posted.entryNo ?? "");
+    check("JV number issued", new RegExp(`^JV-${FY}-[0-9]{5}$`).test(posted.entryNo ?? ""), posted.entryNo ?? "");
     const detail = await (await fetch(`${base}/api/accounting/journals/${posted.id}`, { headers: { cookie: acc } }))
       .json() as { status: string; lines: unknown[] };
     check("entry posted with 2 lines", detail.status === "posted" && detail.lines.length === 2);

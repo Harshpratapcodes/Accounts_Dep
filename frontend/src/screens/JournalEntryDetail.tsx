@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { JournalEntryDetail } from "@bizsuite/contracts";
 import { api, friendlyMessage } from "../api";
-import { useAuth, isAdmin } from "../auth";
+import { useAuth, hasFullBooks } from "../auth";
 import { inr } from "./Khata";
 
 /**
@@ -42,7 +42,7 @@ export function JournalEntryDetailScreen() {
   const totalDebit = d.lines.reduce((s, l) => s + Number(l.debit), 0);
   const totalCredit = d.lines.reduce((s, l) => s + Number(l.credit), 0);
   const isManual = d.voucher_type === "manual_journal";
-  const canReverse = isAdmin(user) && isManual && !d.reversed_by_id && !d.reverses_id;
+  const canReverse = hasFullBooks(user) && isManual && !d.reversed_by_id && !d.reverses_id;
 
   return (
     <>

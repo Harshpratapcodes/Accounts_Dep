@@ -49,9 +49,12 @@ jobs:
         run: npm run build:web
 
       - name: Load schema
-        run: psql -h localhost -U postgres -d bizsuite -f schema.sql
+        run: psql -h localhost -U postgres -d bizsuite -v ON_ERROR_STOP=1 -f schema.sql
         env:
           PGPASSWORD: ci
+
+      - name: Apply migrations (v2 deltas on top of schema.sql)
+        run: npm run migrate
 
       - name: Integration suite (quote-to-cash spine)
         run: npm run test:integration
@@ -88,6 +91,18 @@ jobs:
 
       - name: Concurrency test (parallel submitters, one winner)
         run: npx tsx test/concurrency.ts
+
+      - name: Numbering suite (FY series, C-08)
+        run: npm run test:numbering
+
+      - name: Config suite (effective-dated config, C-14)
+        run: npm run test:config
+
+      - name: Business suite (business_id everywhere, owner role)
+        run: npm run test:business
+
+      - name: Security suite (headers, CSRF, login limits, D-143)
+        run: npm run test:security
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

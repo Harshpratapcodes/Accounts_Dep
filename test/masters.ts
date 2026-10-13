@@ -3,6 +3,7 @@
  * Verifies create/list/get/update, duplicate guards, GST/GSTIN validation,
  * and that a readonly role cannot write while an admin can.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";

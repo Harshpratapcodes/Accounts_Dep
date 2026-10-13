@@ -1,5 +1,6 @@
 import pg from "pg";
 import { loadDotEnv } from "./env.js";
+import { BUSINESS_TZ } from "./clock.js";
 
 loadDotEnv(); // .env (gitignored) fills anything the real environment didn't set
 
@@ -36,6 +37,9 @@ export type Tx = pg.PoolClient;
 /**
  * Every business operation runs inside withTransaction:
  *  - sets app.user_id so audit triggers know the actor
+ *  - sets TimeZone to the business zone, so CURRENT_DATE (document date
+ *    defaults, the FY a number comes from) is the date in India even if the
+ *    database-level setting from migration 0002 is missing
  *  - deferred constraint triggers (journal balance, allocation caps) fire at COMMIT
  */
 export async function withTransaction<T>(
@@ -45,9 +49,10 @@ export async function withTransaction<T>(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (userId) {
-      await client.query("SELECT set_config('app.user_id', $1, true)", [userId]);
-    }
+    // '' reads back as NULL through fn_current_actor() (system jobs, scripts).
+    await client.query(
+      "SELECT set_config('TimeZone', $1, true), set_config('app.user_id', $2, true)",
+      [BUSINESS_TZ, userId ?? ""]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;

@@ -1,10 +1,11 @@
 /**
- * Create a user from the CLI (no admin UI yet — blueprint Phase 1 item).
+ * Create a user from the CLI (no admin UI; D-171).
  *
  *   npx tsx scripts/create-user.ts <email> <full name> <password> <role>
  *
- * Roles (seeded): admin | accounts | sales | inventory | readonly
- * Counter staff = 'sales' (can draft+submit invoices/payments, cannot cancel).
+ * v2 uses two roles: owner (the full books; reads platform settings) and
+ * admin (also edits platform settings and config). The v1 roles accounts,
+ * sales, inventory and readonly stay seeded but unused (D-140).
  */
 import { createUser } from "../src/core/auth.js";
 import { pool } from "../src/shared/db.js";
@@ -13,7 +14,7 @@ const [email, fullName, password, roleName] = process.argv.slice(2);
 
 if (!email || !fullName || !password || !roleName) {
   console.error('Usage: npx tsx scripts/create-user.ts <email> "<full name>" <password> <role>');
-  console.error("Roles: admin | accounts | sales | inventory | readonly");
+  console.error("Roles: owner | admin (v1, unused in v2: accounts | sales | inventory | readonly)");
   process.exit(1);
 }
 

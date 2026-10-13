@@ -113,7 +113,7 @@ async function loadPayment(tx: Tx, id: string): Promise<LoadedPayment> {
 
 export const paymentLifecycle = makeLifecycle<LoadedPayment>({
   table: "payment_entries",
-  series: () => "PAY-2026",
+  series: () => "PAY",
   load: loadPayment,
 
   /** Dr Cash/Bank, Cr Debtors[customer]. v_invoice_outstanding starts counting

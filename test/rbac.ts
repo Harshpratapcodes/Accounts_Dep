@@ -4,6 +4,7 @@
  * the Express guard returns 403 before any handler work when a role lacks the
  * action — and lets an allowed role through (past the gate) to the handler.
  */
+import "./support/local-db-only.js"; // first: refuses a non-local database
 import type { AddressInfo } from "node:net";
 import { app } from "../src/server.js";
 import { createUser } from "../src/core/auth.js";
