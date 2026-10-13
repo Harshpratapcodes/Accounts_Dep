@@ -9,7 +9,7 @@ Design IDs `D-xx`. DDL lives in `04-schema-deltas.md`; per-type extraction detai
 - **D-03 Provenance is a column, not a log.** Every posted record carries `proposal_id`; every proposal carries `document_id` (nullable) and `llm_call_ids`; every confirmation records edited fields. Rule 56(8) satisfied by design (`C-03`).
 - **D-04 Deterministic where possible, model where necessary.** Arithmetic, tax split, GSTIN checks, duplicate detection, rate lookup, place of supply, number allocation, question selection: code. Reading a photo, naming an item, phrasing a question, parsing a free-text answer: model.
 - **D-05 Stage isolation.** The ingestion pipeline is a sequence of idempotent stages with persisted state per document (the NSE pipeline pattern). Any stage can be re-run for one document without touching the others.
-- **D-06 One container, one database, one queue.** Node/Express/TS on Render, PostgreSQL on Neon, pg-boss for jobs, S3-compatible object storage for files. No Redis, no second service, no Python sidecar in v1.
+- **D-06 One container, one database, one queue.** Node/Express/TS on Render, PostgreSQL on Neon, pg-boss for jobs, S3-compatible object storage for files. No Redis, no second service, no Python sidecar in v1. v2 runs as its own Render service on its own Neon database, separate from v1's. The imported `render.yaml` is on Render's free plan, whose instances sleep when idle, so in-process pg-boss schedules would not fire: an always-on plan is required before V2-4's digest.
 - **D-07 Everything measurable.** Every LLM call logs model, tokens, cost, latency, prompt version, and outcome. Every proposal logs whether it was confirmed unedited, edited, or rejected. These two tables drive the eval harness and the auto-post unlock rule (`P-12`).
 
 ## 2. Architecture
@@ -51,13 +51,13 @@ The v1 modular-monolith rule holds: a module owns its tables and exposes service
 
 | Module | Status | Owns |
 |---|---|---|
-| `core` | kept, simplified | users (roles `owner`, `admin`), sessions, audit plumbing, config (`C-14`), business profile |
-| `crm` | extended | companies (customers/suppliers), contacts, addresses; new: `installed_units`, `amc_contracts`, `service_tickets` |
-| `sales` | kept | quotations, sales orders |
-| `invoicing` | extended | invoices, payments; new: `delivery_challans`, `credit_notes`, `debit_notes`, `receipt_vouchers`; new columns for IRN and e-way bill |
-| `accounting` | extended | accounts, journals, periods, reports; new: `gst_rate_schedule`, `hsn_codes`, tax ledgers (output, ITC, RCM) as views over posted lines |
-| `inventory` | kept | items, warehouses, stock moves; new movement types (`C-05`) |
-| `purchases` | new | `purchase_bills`, `purchase_bill_lines`, `expenses`, payables, ITC eligibility, RCM |
+| `core` | kept, simplified | users, roles (five seeded; `owner` added; the UI exposes `owner` and `admin`), sessions, numbering (`document_sequences`), the document engine, `audit_log`, `company_settings`; new: `business`, config (`config_values`, `C-14`) |
+| `crm` | extended | companies (customer and supplier flags, GSTIN, state code, billing and shipping addresses as jsonb columns; there is no addresses table), contacts; `deals`, `pipeline_stages`, `activities` stay in the schema with no v2 UI; new: `installed_units`, `amc_contracts`, `service_tickets` |
+| `sales` | kept | quotations, sales orders, and their lines |
+| `invoicing` | extended | invoices (kinds `invoice` and `credit_note`; `debit_note` added, ADR 025), invoice lines, payment entries and allocations (customer receipts; the khata); new: `delivery_challans`, `receipt_vouchers`, supplier payments; new e-way bill columns (the IRN columns already exist) |
+| `accounting` | extended | accounts, journals, financial periods with the posting lock, reports (trial balance, general ledger), the customer opening-balance rail; new: `gst_rate_schedule`, `hsn_codes`, tax ledgers (output, ITC, RCM) as views over posted lines |
+| `inventory` | kept | items (`hsn_sac_code`, `is_stock_item`), warehouses, the stock ledger (`stock_ledger_entries` with the `item_warehouse` cache), purchase receipts, stock adjustments; new adjustment reasons (`C-05`) |
+| `purchases` | new | `purchase_bills`, `purchase_bill_lines`, `expenses`, payables, ITC eligibility, RCM; posting reuses inventory's `receiveStock` |
 | `banking` | new | `bank_accounts`, `bank_statement_imports`, `bank_lines`, `bank_matches` |
 | `documents` | new | `documents` (files), `document_pages`, storage adapter, hashing, dedup |
 | `extraction` | new | `extraction_runs`, stage state, quality gate, classifiers, extractors |
@@ -68,7 +68,7 @@ The v1 modular-monolith rule holds: a module owns its tables and exposes service
 | `llm` | new | `llm_calls`, `prompts` (versioned), gateway, routing, budget |
 | `notifications` | new | web push subscriptions, deliveries |
 
-Dropped from the v1 roadmap: the CRM leads/pipeline kanban (replaced by the service module), the unified Odoo-style Sales app, the admin user-management UI beyond two roles, per-module RBAC screens.
+Dropped from the v1 roadmap: the CRM leads/pipeline kanban (replaced by the service module), the unified Odoo-style Sales app, the admin user-management UI beyond two roles, per-module RBAC screens. Their tables (`deals`, `pipeline_stages`, `activities`) stay, per D-170.
 
 ## 4. The proposal lifecycle (D-10 to D-18)
 
@@ -77,7 +77,7 @@ Dropped from the v1 roadmap: the CRM leads/pipeline kanban (replaced by the serv
 - **D-12 Status machine**: `draft → needs_input → ready → confirmed → posted`, with `rejected` and `superseded` as terminal side exits and `failed` for a posting error (which never leaves partial state because posting is one transaction). `needs_input` means at least one blocking issue or open clarification; `ready` means zero blocking issues.
 - **D-13 Validation runs on every version** and produces `proposal_issues`: `{ code, severity: block|warn|info, field_path, message, suggested_clarification_template }`. Severity `block` prevents `ready`. The validator catalogue is §7.
 - **D-14 Confirmation** is a POST by an authenticated owner/admin naming the version. It records the diff between the last model-produced version and the confirmed version (the "edited fields" signal for `P-12`), then calls the type's posting function.
-- **D-15 Posting function** = the v1 service (`createDraftQuotation` + `quotationLifecycle.submit`, `postPurchaseBill`, `postBankMatches`, …) called with the confirmed payload inside `withTransaction`, with `app.user_id` set for audit and `proposal_id` written on the resulting record(s). Number allocation happens here, never earlier.
+- **D-15 Posting function** = the type's service: existing engine functions for the types v1 already has (`createDraftQuotation` + `quotationLifecycle.submit`, the invoice and payment lifecycles), new ones for v2 types (`postPurchaseBill`, `postBankMatches`, …), called with the confirmed payload inside `withTransaction`, with `app.user_id` set for audit and `proposal_id` written on the resulting record(s). Number allocation happens here, never earlier.
 - **D-16 Undo** for 24 hours calls the type's reversal function (existing for journals and invoices; new for bills, expenses, matches) and marks the proposal `reversed`. Outbound documents that were already sent show a warning that the counterparty holds a copy.
 - **D-17 Auto-post** (`P-12`): a per-type flag in config; when on, a `ready` version with no `warn` issues is confirmed by the system actor after a configurable delay and appears in the digest as "posted automatically, tap to review". Outbound types cannot be set.
 - **D-18 Idempotency**: proposals from documents are keyed on `(document_id, type)`; re-running extraction supersedes the previous version rather than creating a second proposal. Confirmation is idempotent on `(proposal_id, version)`.
@@ -169,28 +169,30 @@ Every `block` and `needs_input` issue maps to a clarification template (`06-clar
 
 - **D-80** `bank_accounts` per business; statement imports keyed on (account, period, hash). Extraction yields lines `{ date, narration, ref, debit_paise, credit_paise, balance_paise }`; a running-balance check across lines is a block-level validator (any break means an extraction error).
 - **D-81** Matching runs in code first: exact amount + party token in narration within ±config days → invoice or bill; UPI reference or cheque number stored on a receipt → exact; recurring narrations learned from confirmed matches. Model assistance only for narration-to-party disambiguation, as a `propose` step.
-- **D-82** A `bank_match_batch` proposal groups a statement's matches; the confirm screen shows matched, suggested, and unmatched lines; unmatched become clarifications. Confirming posts receipts/payments through the existing khata/payment services and marks lines reconciled.
+- **D-82** A `bank_match_batch` proposal groups a statement's matches; the confirm screen shows matched, suggested, and unmatched lines; unmatched become clarifications. Confirming posts customer receipts through the existing payment service (the khata) and supplier payments through the V2-3 service, and marks lines reconciled.
 - **D-83** Cash book: cash receipts and payments are postings with `mode = cash`; the cash account balance is derived. A physical count entry is a journal, not an edit.
 - **D-84** The money view (P-09) reads posted balances only.
 
 ## 12. CRM and service (D-90 to D-93)
 
-- **D-90** `installed_units`: `{ id, item_id, serial_no, customer_id, site_address_id, sold_on_invoice_id, challan_id, installed_at, warranty_until, status }`. Created from challan/invoice serials; serial uniqueness per item.
+- **D-90** `installed_units`: `{ id, item_id, serial_no, customer_id, site_address, sold_on_invoice_id, challan_id, installed_at, warranty_until, status }`, with `site_address` as jsonb in the same shape as the `companies` addresses. Created from challan/invoice serials; serial uniqueness per item.
 - **D-91** `amc_contracts`: `{ customer_id, units[], start, end, price_paise, visits_planned, visits_done, invoice_id }`; renewal reminders 30 days before `end` in the digest.
 - **D-92** `service_tickets`: `{ unit_id, reported_at, issue, resolution, parts_used (stock issue lines), labour_paise, coverage: warranty|amc|billable, invoice_id? }`. A billable ticket produces an invoice proposal (SAC line, `C-19`). Parts used move stock.
 - **D-93** Customer timeline view: quotations, orders, invoices, payments, units, tickets, AMCs, in one list; the "what does this customer have" answer for Ask's read tools.
 
 ## 13. Data model deltas (summary; DDL in 04)
 
-New tables: `business`, `config_values`, `documents`, `document_pages`, `extraction_runs`, `proposals`, `proposal_versions`, `proposal_issues`, `confirmations`, `clarifications`, `clarification_answers`, `digests`, `conversations`, `messages`, `tool_calls`, `llm_calls`, `prompts`, `gst_rate_schedule`, `hsn_codes`, `purchase_bills`, `purchase_bill_lines`, `expenses`, `expense_categories`, `credit_notes`, `debit_notes`, `delivery_challans`, `delivery_challan_lines`, `receipt_vouchers`, `bank_accounts`, `bank_statement_imports`, `bank_lines`, `bank_matches`, `gstr1_exports`, `gstr2b_imports`, `gstr2b_entries`, `reconciliations`, `installed_units`, `amc_contracts`, `service_tickets`, `push_subscriptions`.
+New tables: `business`, `config_values`, `documents`, `document_pages`, `extraction_runs`, `proposals`, `proposal_versions`, `proposal_issues`, `confirmations`, `clarifications`, `clarification_answers`, `digests`, `conversations`, `messages`, `tool_calls`, `llm_calls`, `prompts`, `gst_rate_schedule`, `hsn_codes`, `purchase_bills`, `purchase_bill_lines`, `expenses`, `expense_categories`, `delivery_challans`, `delivery_challan_lines`, `receipt_vouchers`, `bank_accounts`, `bank_statement_imports`, `bank_lines`, `bank_matches`, `gstr1_exports`, `gstr2b_imports`, `gstr2b_entries`, `reconciliations`, `installed_units`, `amc_contracts`, `service_tickets`, `push_subscriptions`. Credit and debit notes are not new tables: they are kinds of `invoices` (ADR 025).
 
-Changed tables: `invoices` (+`proposal_id`, `irn`, `ack_no`, `ack_date`, `signed_qr`, `eway_required`, `eway_bill_no`, `delivery_challan_id`, `round_off_paise`); `payments` (+`mode`, `reference`, `bank_line_id`, `proposal_id`); `items` (+`sac_code`, `is_service`, `is_serialised`, `default_rate_note`); `companies` (+`is_transporter`, `rcm_default`); `stock_moves` (+movement types per `C-05`); every business table (+`business_id` default 1); every posted document (+`proposal_id`).
+Changed tables: `invoices` (+`proposal_id`, `eway_required`, `eway_bill_no`, `delivery_challan_id`; kind `debit_note`; `irn`, `irn_ack_no`, `irn_ack_date`, `signed_qr` and the `rounding_adjustment` round-off line already exist); `payment_entries` (+`other` mode, `bank_line_id`, `proposal_id`; `mode` and `reference_no` already exist; supplier payments either extend it with a direction or get a sibling table, decided in 04); `items` (+`is_serialised`, `default_rate_note`; `hsn_sac_code` already holds HSN or SAC and `is_stock_item = false` already marks a service; the `gst_rate` CHECK is replaced by the rate schedule, `C-13`); `companies` (+`is_transporter`, `rcm_default`); `stock_adjustments` (reasons per `C-05`); `document_sequences` (keyed by financial year, `C-08`); `roles` (+`owner`); every business table (+`business_id` default 1); every posted document (+`proposal_id`).
+
+Money columns follow the engine: `numeric(15,2)` in the database, decimal strings in contracts, integer paise only inside `src/shared/money.ts`. Fields named `…_paise` in this document are amounts; 04 maps them to the engine's column type.
 
 Invariants added at DB level: proposals never deleted; `proposal_versions` insert-only; `confirmations.version_id` must be the proposal's current version at confirm time (checked in the service, enforced by a trigger); `llm_calls` insert-only; `bank_lines` insert-only; number sequences allocate only inside the posting transaction.
 
 ## 14. PDF rendering (D-100)
 
-Server-side PDF renders the same print-CSS templates the SPA uses (quotation, invoice, challan, note, receipt, close-package summary) through headless Chromium (`playwright-core` + the Chromium build already used for E2E, installed in the Docker image). One template, two outputs, pixel-identical. Rendered PDFs are stored as documents with `source = generated` and linked to the record. If image size becomes a problem on Render, ADR 024 records `@react-pdf/renderer` as the fallback with a second template set.
+Server-side PDF renders the same print-CSS templates the SPA uses (quotation, invoice, challan, note, receipt, close-package summary) through headless Chromium (`playwright-core` driving a Chromium installed in the Docker image). Today Chromium exists only in CI, installed by `npx playwright install` for E2E; the runtime image (`node:22-alpine`) has none. V2-1 adds it and measures memory on the Render plan before building on it. One template, two outputs, pixel-identical. Rendered PDFs are stored as documents with `source = generated` and linked to the record. If image size becomes a problem on Render, ADR 024 records `@react-pdf/renderer` as the fallback with a second template set.
 
 ## 15. Jobs, scheduling, notifications (D-110 to D-113)
 
@@ -213,20 +215,20 @@ S3-compatible bucket (Cloudflare R2 or equivalent), one per environment, server-
 
 ## 18. Security (D-140 to D-145)
 
-- **D-140** Sessions as in v1 (argon2id, hashed opaque tokens). Two roles. The `readonly` role is reserved for a future CA login and has no UI in v1.
+- **D-140** Sessions as in v1 (argon2id, hashed opaque tokens). Two roles in the UI: `owner` (added in V2-0) and `admin`. The `readonly` role is reserved for a future CA login and has no UI in v1.
 - **D-141** All uploads scanned for type by magic bytes, size-capped, stored outside the web root, served via signed URLs only.
 - **D-142** The agent's tool registry is the only interface between models and services; tool inputs are zod-validated; the model cannot name a tool outside the registry; prompt content from documents is treated as data (a bill that says "ignore previous instructions" is still just a bill: the extraction schema has no free-form instruction channel).
-- **D-143** Helmet, rate limits on `/auth/*` and on upload and Ask endpoints, CSRF on state-changing routes (the v1 hardening list, now blocking go-live).
+- **D-143** Helmet, rate limits on `/auth/*` and on upload and Ask endpoints, CSRF on state-changing routes. This is the v1 hardening list, none of which is in the imported `src/server.ts`. It lands in V2-0: the owner uses production from V2-1, and Ask and upload spend LLM money.
 - **D-144** Secrets in Render environment; OpenRouter key scoped and rotated; no key in the SPA.
-- **D-145** Dev bypass (v1 ADR 012) kept, fail-closed in production.
+- **D-145** Dev bypass (v1 ADR 012, `src/core/dev-auth.ts`) kept, fail-closed in production: the server refuses to boot with the bypass set in a production build.
 
 ## 19. Observability and cost (D-150)
 
-Structured JSON logs with request id, proposal id, document id; error tracking (Sentry or equivalent); the `llm_calls` and `confirmations` tables as the two dashboards that matter: cost per document type per month, and edit rate per proposal type (the auto-post unlock signal). A `/healthz` that checks DB, queue, and storage.
+Structured JSON logs with request id, proposal id, document id; error tracking (Sentry or equivalent); the `llm_calls` and `confirmations` tables as the two dashboards that matter: cost per document type per month, and edit rate per proposal type (the auto-post unlock signal). `/healthz` checks the database today; queue and storage checks are added as those components arrive.
 
 ## 20. Testing and evals (D-160 to D-164)
 
-- **D-160** The v1 suites stay green. New integration suites per module in the same `tsx` style: proposals lifecycle, purchases posting (ledger + stock + payable in one transaction, reversal nets to zero), banking matches, compliance builders (GSTR-1 fixture round-trip, 2B reconciliation cases), service module.
+- **D-160** The v1 suites stay green: 11 `tsx` integration scripts under `test/`, the frontend Vitest suite, and 3 Playwright specs under `e2e/`, all run by `.github/workflows/ci.yml`. New integration suites per module in the same `tsx` style: proposals lifecycle, purchases posting (ledger + stock + payable in one transaction, reversal nets to zero), banking matches, compliance builders (GSTR-1 fixture round-trip, 2B reconciliation cases), service module.
 - **D-161** Validator unit tests: every row of the §7 table has a passing and a failing case.
 - **D-162** Extraction evals (`07-eval-harness.md`): golden documents with expected JSON; per-field scorers; thresholds from `P` metrics; run in CI on any change under `src/llm/`, `src/extraction/`, or the model routing config; recorded models are used so CI does not call live providers except on a scheduled nightly job.
 - **D-163** Quotation reproduction: the owner's real Refrens quotations as goldens; given their inputs as an Ask sentence, the proposed totals must match exactly.
@@ -234,9 +236,9 @@ Structured JSON logs with request id, proposal id, document id; error tracking (
 
 ## 21. Deployment and migration from v1 (D-170 to D-173)
 
-- **D-170** Tag `v1` at the last commit of the customer rail. v2 development continues on `main` behind the same CI; the Render service keeps deploying `main`. Nothing in v1's schema is dropped; v2 migrations are additive (new tables, new nullable columns) and folded into `schema.sql` after each phase as v1 did.
-- **D-171** Roles: existing `admin` user stays admin; create the owner user; the other seeded roles remain but unused.
-- **D-172** Opening balances and masters (V2-8): customers via the existing CSV importer; items via a new one through the same contract path; opening stock and party balances via the existing opening-balance journal path (account 3300 rail); bank opening balance as a journal.
+- **D-170** v2 lives in its own repo (`bizsuite-accounts`), a one-time copy of v1 at `25ae8c6`; v1 continues in `Harshpratapcodes/Bizsuite` and fixes do not flow between them. The import commit is tagged as the baseline. v2 has its own CI (the imported workflow), its own Render service and its own Neon database: `.env` was not carried over, and v2 must never point at v1's database. Nothing in the imported schema is dropped; v2 migrations are additive (new tables, new nullable columns) and folded into `schema.sql` after each phase as v1 did.
+- **D-171** Roles: the new database starts with no users; create the `admin` and `owner` users with `scripts/create-user.ts`. The other seeded roles remain, unused.
+- **D-172** Masters (V2-1): customers through the existing CSV importer (`scripts/import-customers.ts`); items through a new importer on the same contract path. Opening balances (V2-8): customer balances through the existing rail (`src/modules/accounting/opening-balance.ts`: Dr Debtors[customer] / Cr 3300 Opening Balances, one journal per debtor, party-level lumps); supplier balances, opening stock and the bank opening balance need new paths against the same 3300 account.
 - **D-173** Parallel run: one full month where the CA files from the close package while still receiving the paper, and the two are reconciled before the paper stops.
 
 ## 22. Key interfaces (TypeScript, illustrative)

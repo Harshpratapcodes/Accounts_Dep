@@ -21,7 +21,7 @@ The business it serves in v1: Kumar Abhiyantriki Enterprises, Lucknow. Trading-s
 | CA | Email / files | receives the monthly close package; files returns | none (files only) |
 | Customers, suppliers | Email / WhatsApp (manual forward) | receive PDFs | none |
 
-Roles collapse to `owner` and `admin` in v2. The v1 five-role matrix stays in the schema (harmless, and the `readonly` role becomes the future CA login) but the UI does not expose user management beyond these two.
+Roles collapse to `owner` and `admin` in v2. The imported schema seeds five roles (`admin`, `accounts`, `sales`, `inventory`, `readonly`) and has no `owner`; V2-0 adds it. The other four stay in the schema (harmless, and the `readonly` role becomes the future CA login) but the UI does not expose user management beyond `owner` and `admin`.
 
 ## 4. Jobs to be done
 
@@ -99,7 +99,7 @@ Multi-tenancy; Hindi or voice input (design the UI strings for i18n, do not impl
 
 ## 8. Constraints
 
-Single tenant. Existing engine: Node/Express/TypeScript, PostgreSQL 16 on Neon, React SPA, zod contracts, pg triggers, Playwright E2E, Vitest. Deployed on Render as one container. LLM access via OpenRouter. Built by one developer with a coding agent, part-time, no fixed date. English-only UI in v1. The owner's phone is the primary device; assume a mid-range Android and patchy mobile data (uploads must be resumable and small).
+Single tenant. Existing engine: Node 22, Express and TypeScript run through `tsx`; raw `node-postgres` (no ORM); PostgreSQL 16 on Neon; React SPA (Vite, TanStack Query); zod contracts shared through `@bizsuite/contracts`; pg triggers. Backend tests are `tsx` integration scripts, frontend tests are Vitest, E2E is Playwright. Deployed on Render as one container, on the free plan in the imported `render.yaml` (instances sleep when idle). v2 runs its own Render service and Neon database, separate from v1's. LLM access via OpenRouter. Built by one developer with a coding agent, part-time, no fixed date. English-only UI in v1. The owner's phone is the primary device; assume a mid-range Android and patchy mobile data (uploads must be resumable and small).
 
 ## 9. Risks
 
@@ -112,10 +112,10 @@ Single tenant. Existing engine: Node/Express/TypeScript, PostgreSQL 16 on Neon, 
 | LLM provider outage or cost spike | gateway with model routing and fallback; monthly budget cap; the system degrades to manual proposals, never to no service |
 | Solo-dev stall | phases ship independently; V2-1 alone replaces Refrens |
 
-## 10. Open questions (owner or CA to answer before V2-6)
+## 10. Open questions (owner or CA; each answered before the phase named)
 
-1. Monthly or QRMP filer? (Portal shows it. Default assumption: QRMP.)
-2. ITR-4 (44AD presumptive) or ITR-3 last year?
-3. Is installation billed as part of the goods (composite supply) or as a separate service line? Which does the CA currently file?
-4. Bank name(s) and statement format(s); approximate share of receipts in cash.
-5. Does the business ever sell interstate or to unregistered buyers above ₹50,000?
+1. Monthly or QRMP filer? (Portal shows it. Default assumption: QRMP.) Before V2-6.
+2. ITR-4 (44AD presumptive) or ITR-3 last year? Before V2-6.
+3. Is installation billed as part of the goods (composite supply) or as a separate service line? Which does the CA currently file? Before V2-1: J1's quotations include installation.
+4. Bank name(s) and statement format(s); approximate share of receipts in cash. Before V2-5.
+5. Does the business ever sell interstate or to unregistered buyers above ₹50,000? Before V2-2.
